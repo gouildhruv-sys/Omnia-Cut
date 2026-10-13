@@ -61,6 +61,7 @@ function sseText(res, pick) {
 
 async function gemini(body, key) {
   const parts = (body.images || []).slice(0, 12).map((d) => ({ inlineData: { mimeType: 'image/jpeg', data: d } }));
+  (body.audio || []).slice(0, 3).forEach((d) => parts.push({ inlineData: { mimeType: 'audio/wav', data: d } }));
   parts.push({ text: String(body.prompt || '').slice(0, 60000) });
   // Free-tier limits are per model, so if one model is busy we try the next one.
   const chain = [...new Set([GEM()[body.tier] || GEM().default, 'gemini-flash-latest', 'gemini-flash-lite-latest'])];
@@ -69,7 +70,7 @@ async function gemini(body, key) {
     const r = await fetch(gurl(model, 'streamGenerateContent') + '?alt=sse', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0.9, maxOutputTokens: 16384 } }),
+      body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: body.audio ? 0 : 0.9, maxOutputTokens: 16384 } }),
     });
     if (r.ok) {
       return new Response(sseText(r, (j) => (((j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || []).filter((p) => !p.thought && p.text).map((p) => p.text).join(''))), { headers: TXT });
@@ -82,6 +83,7 @@ async function gemini(body, key) {
 }
 
 async function anthropic(body, key) {
+  if (body.audio && body.audio.length) return err(400, 'Speech captions need the Gemini key');
   const content = (body.images || []).slice(0, 12).map((d) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: d } }));
   content.push({ type: 'text', text: String(body.prompt || '').slice(0, 60000) });
   const r = await fetch('https://api.anthropic.com/v1/messages', {
